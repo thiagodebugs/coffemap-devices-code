@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <FirebaseESP32.h>
 #include <SoftwareSerial.h>
 #include <TinyGPSPlus.h>
@@ -31,41 +30,40 @@ FirebaseConfig config;
 
 bool signupOK = false;
 
+// Path do RTDB
+uint64_t chipid = 0;
+String path = "/devices/";
+
 void setup() {
+  // Inicialização da comunicação serial
   Serial.begin(115200);
   ss.begin(GPSBaud);
 
-  // Inicialização do GPS e conexão WiFi
-  Serial.println(F("DeviceExample.ino"));
-  Serial.println(
-      F("Uma demonstração simples do TinyGPSPlus com um módulo GPS anexado"));
-  Serial.print(F("Testando a biblioteca TinyGPSPlus v. "));
-  Serial.println(TinyGPSPlus::libraryVersion());
-  Serial.println();
+  Serial.println("Inicializando...");
+  Serial.printf("TinyGPSPlus v%s\n", TinyGPSPlus::libraryVersion());
+  Serial.printf("Cliente Firebase v%s\n", FIREBASE_CLIENT_VERSION);
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  // Conexão do WiFi
   Serial.print("Conectando ao Wi-Fi");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(300);
   }
   Serial.println();
-  Serial.print("Conectado com IP: ");
-  Serial.println(WiFi.localIP());
-  Serial.println();
-
-  Serial.printf("Cliente Firebase v%s\n\n", FIREBASE_CLIENT_VERSION);
+  Serial.printf("Wi-Fi Conectado! IP: %s\n", WiFi.localIP().toString().c_str());
 
   // Configuração do Firebase
   config.api_key = API_KEY;
   config.database_url = DATABASE_URL;
 
-  // Tentativa de cadastro no Firebase
+  // Autenticação anonima no Firebase (signUp)
   if (Firebase.signUp(&config, &auth, "", "")) {
-    Serial.println("SignUp Ok");
     signupOK = true;
+    Serial.println("Autenticação Ok!");
   } else {
-    Serial.printf("%s\n", config.signer.signupError.message.c_str());
+    Serial.printf("Erro de autenticação: %s\n",
+                  config.signer.signupError.message.c_str());
   }
 
   // Configuração do callback para a geração de token
@@ -74,81 +72,68 @@ void setup() {
   // Controle de reconexão WiFi
   Firebase.reconnectNetwork(true);
   Firebase.begin(&config, &auth);
+
+  // Configuração do path do RTDB
+  chipid = ESP.getEfuseMac();
+  path += String(chipid, HEX);
 }
 
 void loop() {
+  // Inicializa variáveis do loop
+  int timestamp = 0;
+
+  // Verifica se o GPS está disponível
   if (ss.available() > 0) {
-    if (gps.encode(ss.read()) && gps.location.isValid() && gps.date.isValid() &&
-        gps.time.isValid()) {
-      if (Firebase.ready() && signupOK) {
-        if (Firebase.setTimestamp(fbdo, "devices/1")) {
-          String path = "devices/1"; // + fbdo.to<int>();
+    // Verifica se o GPS e o Firebase está pronto
+    if (allValid()) {
+      // Insere o timestamp no Firebase
+      // if (Firebase.setTimestamp(fbdo, path.c_str())) {
+      //   // Recupera o timestamp inserido
+      //   timestamp = fbdo.to<int>();
+      //   Serial.printf("Timestamp inserido com sucesso: %d\n", timestamp);
+      // } else {
+      //   Serial.printf("Erro ao inserir timestamp: %s\n",
+      //                 fbdo.errorReason().c_str());
+      // }
 
-          FirebaseJson json;
+      // // Concatena o path do RTDB com o timestamp
+      // String pathTimestamp = path + "/" + String(timestamp);
 
-          json.set("lat", String(gps.location.lat(), 6));
-          json.set("long", String(gps.location.lng(), 6));
+      // Cria um objeto FirebaseJson para armazenar os dados
+      FirebaseJson json;
+      json.set("timestamp/.sv", "timestamp");
+      json.set("latitude", String(gps.location.lat(), 6));
+      json.set("longitude", String(gps.location.lng(), 6));
 
-          if (Firebase.setJSON(fbdo, path, json)) {
-            displayInfo();
-            Serial.println("Dados enviado com sucesso");
-          } else {
-            displayInfo();
-            Serial.println("Falha ao enviar dados");
-            Serial.println(fbdo.errorReason());
-          }
-        }
+      // Insere os dados do GPS no Firebase
+      if (Firebase.pushJSON(fbdo, path.c_str(), json)) {
+        Serial.println("Dados inseridos com sucesso!");
+        // Exibe as informações do GPS
+        displayInfo();
+      } else {
+        Serial.printf("Erro ao inserir dados: %s\n",
+                      fbdo.errorReason().c_str());
       }
+
+      // Aguarda 10 segundos
+      delay(10000);
     }
   } else if (millis() > 5000 && gps.charsProcessed() < 10) {
-    Serial.println(F("No GPS detected: check wiring."));
+    Serial.println("Sem dados do GPS, verifique a conexão.");
     while (true)
       ;
   }
 }
 
+bool allValid() {
+  return gps.encode(ss.read()) && gps.location.isValid() &&
+         gps.date.isValid() && gps.time.isValid() && Firebase.ready() &&
+         signupOK;
+}
+
 void displayInfo() {
-  Serial.print(F("Location: "));
-  if (gps.location.isValid()) {
-    Serial.print(gps.location.lat(), 6);
-    Serial.print(F(","));
-    Serial.print(gps.location.lng(), 6);
-  } else {
-    Serial.print(F("INVALID"));
-  }
-  Serial.print(F("  Date/Time: "));
-  if (gps.date.isValid()) {
-    Serial.print(gps.date.month());
-    Serial.print(F("/"));
-    Serial.print(gps.date.day());
-    Serial.print(F("/"));
-    Serial.print(gps.date.year());
-  } else {
-    Serial.print(F("INVALID"));
-  }
-  Serial.print(F(" "));
-  if (gps.time.isValid()) {
-    if (gps.time.hour() < 10) {
-      Serial.print(F("0"));
-    }
-    Serial.print(gps.time.hour());
-    Serial.print(F(":"));
-    if (gps.time.minute() < 10) {
-      Serial.print(F("0"));
-    }
-    Serial.print(gps.time.minute());
-    Serial.print(F(":"));
-    if (gps.time.second() < 10) {
-      Serial.print(F("0"));
-    }
-    Serial.print(gps.time.second());
-    Serial.print(F("."));
-    if (gps.time.centisecond() < 10) {
-      Serial.print(F("0"));
-    }
-    Serial.print(gps.time.centisecond());
-  } else {
-    Serial.print(F("INVALID"));
-  }
-  Serial.println();
+  Serial.printf("Location: %s, %s | Date: %d/%d/%d | Time: %d:%d:%d\n",
+                String(gps.location.lat(), 6), String(gps.location.lng(), 6),
+                gps.date.month(), gps.date.day(), gps.date.year(),
+                gps.time.hour(), gps.time.minute(), gps.time.second());
 }
