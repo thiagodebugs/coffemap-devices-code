@@ -28,11 +28,11 @@ FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-bool signupOK = false;
-
 // Path do RTDB
 uint64_t chipid = 0;
 String path = "/devices/";
+
+bool signupOK = false;
 
 void setup() {
   // Inicialização da comunicação serial
@@ -79,27 +79,11 @@ void setup() {
 }
 
 void loop() {
-  // Inicializa variáveis do loop
-  int timestamp = 0;
-
   // Verifica se o GPS está disponível
   if (ss.available() > 0) {
     // Verifica se o GPS e o Firebase está pronto
     if (allValid()) {
-      // Insere o timestamp no Firebase
-      // if (Firebase.setTimestamp(fbdo, path.c_str())) {
-      //   // Recupera o timestamp inserido
-      //   timestamp = fbdo.to<int>();
-      //   Serial.printf("Timestamp inserido com sucesso: %d\n", timestamp);
-      // } else {
-      //   Serial.printf("Erro ao inserir timestamp: %s\n",
-      //                 fbdo.errorReason().c_str());
-      // }
-
-      // // Concatena o path do RTDB com o timestamp
-      // String pathTimestamp = path + "/" + String(timestamp);
-
-      // Cria um objeto FirebaseJson para armazenar os dados
+      // Cria um objeto Firebase Json para armazenar os dados
       FirebaseJson json;
       json.set("timestamp/.sv", "timestamp");
       json.set("latitude", String(gps.location.lat(), 6));
@@ -115,11 +99,11 @@ void loop() {
                       fbdo.errorReason().c_str());
       }
 
-      // Aguarda 10 segundos
+      // Intervalo de 10 segundos
       delay(10000);
     }
   } else if (millis() > 5000 && gps.charsProcessed() < 10) {
-    Serial.println("Sem dados do GPS, verifique a conexão.");
+    Serial.println("Sem dados do GPS, verifique e/ou reinicie a conexão.");
     while (true)
       ;
   }
